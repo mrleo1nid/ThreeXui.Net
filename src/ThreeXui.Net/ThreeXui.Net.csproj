@@ -1,0 +1,65 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      Multi-target: netstandard2.0 for maximum reach (.NET Framework 4.6.1+,
+      Mono, Unity, old runtimes) and net10.0 so the primary consumer
+      (TelegramPnvPanel) binds the in-box BCL without polyfill shims.
+    -->
+    <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
+  </PropertyGroup>
+
+  <!-- NuGet package metadata -->
+  <PropertyGroup>
+    <PackageId>ThreeXui.Net</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Leonid Pershin</Authors>
+    <Description>
+      A standalone .NET client for the 3x-ui / x-ui panel REST API: cookie-session
+      auth with lazy login and 401 re-auth, inbound listing, per-client CRUD via
+      the Get-mutate-Update fallback (works on forks without addClient/delClient),
+      health probing, and protocol-aware connection-string builders
+      (vless/vmess/trojan/shadowsocks).
+    </Description>
+    <PackageTags>3xui;x-ui;xray;vless;vmess;trojan;shadowsocks;vpn;client</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageProjectUrl>https://github.com/mrleo1nid/ThreeXui.Net</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/mrleo1nid/ThreeXui.Net</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <!-- Reproducible-ish: keep the package output under the repo-local feed. -->
+    <PackageOutputPath>$(MSBuildThisFileDirectory)..\..\artifacts</PackageOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Logging abstraction only — no concrete logging dependency forced on consumers. -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+  <!--
+    netstandard2.0 needs the out-of-band System.Text.Json (JsonNode + Web
+    defaults) and System.Net.Http.Json (ReadFromJsonAsync), plus PolySharp to
+    synthesize the C# language polyfills (records/init, System.Index/Range,
+    required members) the modern source relies on. net10.0 has all of this
+    in-box, so the references are TFM-scoped.
+  -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    <PackageReference Include="System.Net.Http.Json" Version="8.0.1" />
+    <PackageReference Include="PolySharp" Version="1.15.0">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ThreeXui.Net.Tests" />
+  </ItemGroup>
+
+</Project>

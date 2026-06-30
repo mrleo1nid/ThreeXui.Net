@@ -1,0 +1,31 @@
+## .NET / Visual Studio build artifacts
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Rider / VS / VS Code
+.vs/
+.idea/
+.vscode/
+
+## Test / coverage
+[Tt]est[Rr]esult*/
+coverage*.xml
+*.coverage
+*.trx
+
+## NuGet
+*.nupkg
+*.snupkg
+.nuget/
+project.lock.json
+
+## OS
+.DS_Store
+Thumbs.db

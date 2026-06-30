@@ -1,0 +1,20 @@
+<Project>
+  <!--
+    Shared MSBuild properties for every project in the ThreeXui.Net solution.
+    Package metadata lives in the library csproj; this file only carries the
+    language/compiler knobs so src and tests stay in lockstep.
+  -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!--
+      CS1591 (missing XML doc on public member) is noise for a library whose
+      public surface is already heavily documented where it matters; we don't
+      gate the build on doc-comment completeness.
+    -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+</Project>

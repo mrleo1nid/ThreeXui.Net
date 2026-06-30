@@ -1,0 +1,77 @@
+# ThreeXui.Net
+
+A standalone .NET client for the **3x-ui / x-ui** panel REST API.
+
+Extracted from [TelegramPnvPanel](https://github.com/mrleo1nid/TelegramPnvPanel) into a
+reusable library. Multi-targets **netstandard2.0** (max reach: .NET Framework 4.6.1+,
+Mono, Unity) and **net10.0** (in-box BCL, no polyfills).
+
+## What it does
+
+- **Cookie-session auth** with lazy login and automatic 401 re-auth, deduplicated under a
+  login gate so concurrent calls never burn duplicate logins.
+- **Inbound listing** (`/panel/api/inbounds/list`) and single-inbound fetch.
+- **Per-client CRUD** (add / update / remove) via a *Get → mutate `settings.clients[]` →
+  Update inbound* fallback, which works on forks without reliable `addClient` / `delClient`
+  endpoints (notably x-ui v2.4.11). Serialized by a per-inbound mutex.
+- **Health probing** with classified error messages (TLS handshake, unreachable host,
+  HTML-instead-of-API, auth failure, server 5xx).
+- **Connection-string builders** for `vless`, `vmess`, `trojan`, `shadowsocks`, including
+  `streamSettings` transport/security rendering and `externalProxy` (CDN/front) endpoints.
+
+## Quick start
+
+```csharp
+using ThreeXui;
+using ThreeXui.Http;
+
+var httpFactory = new XuiHttpClientFactory();
+var http = httpFactory.Create(
+    baseAddress: new Uri("https://panel.example.com:2053/"),
+    allowInsecureTls: false);
+
+IXuiClient client = new XuiClient(http, username: "admin", password: "secret");
+
+// Health
+var health = await client.CheckHealthAsync(ct);
+
+// List inbounds
+var inbounds = await client.ListInboundsAsync(ct);
+
+// Add a client to an inbound
+var result = await client.AddClientAsync(
+    inboundExternalId: "1",
+    new AddClientRequest(
+        Name: "alice",
+        Email: "alice-ab12cd34",
+        Protocol: "vless",
+        LimitIp: 0,
+        ExpiresAt: DateTimeOffset.UtcNow.AddDays(30)),
+    ct);
+
+// Build a share link
+using ThreeXui.ConnectionStrings;
+
+var resolver = new XuiConnectionStringBuilderResolver();
+var inbound = await client.GetInboundAsync("1", ct);
+var link = resolver.Resolve("vless")!.Build(new XuiConnectionStringRequest(
+    ExternalClientId: result.ExternalClientId,
+    Name: "alice",
+    InboundPort: inbound!.Port,
+    PublicHost: null,
+    BaseUrl: "https://panel.example.com:2053/",
+    Inbound: inbound));
+```
+
+## Notes
+
+- `XuiClient` takes an already-built `HttpClient`. Use `XuiHttpClientFactory` (cookie
+  container + no auto-redirect + optional self-signed TLS opt-in), or supply your own.
+- Logging is optional and uses `Microsoft.Extensions.Logging.Abstractions` —
+  pass an `ILogger<XuiClient>` or nothing.
+- Secret storage, credential decryption, caching and metrics are intentionally **out of
+  scope**: the library does the protocol, the host application owns persistence.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

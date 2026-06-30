@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/ThreeXui.Net/ThreeXui.Net.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ThreeXui.Net.Tests/ThreeXui.Net.Tests.csproj" />
+  </Folder>
+</Solution>
