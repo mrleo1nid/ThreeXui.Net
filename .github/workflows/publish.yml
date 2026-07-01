@@ -5,10 +5,9 @@ name: Publish NuGet
 # stays as the dev default and releases are driven entirely by the tag.
 #
 # Auth uses NuGet Trusted Publishing (OIDC) — no long-lived API key secret.
-# One-time setup on nuget.org:
-#   Account -> Trusted Publishing -> add a policy for owner "mrleo1nid",
-#   repository "ThreeXui.Net", workflow "publish.yml".
-# Then set a repository variable NUGET_USER = your nuget.org account name.
+# One-time setup on nuget.org (Account -> Trusted Publishing): a policy for
+# owner "mrleo1nid", repository "ThreeXui.Net", workflow "publish.yml", and
+# environment "NUGET_API_KEY" (must match the job's `environment:` below).
 on:
   push:
     tags: ['v*']
@@ -21,6 +20,9 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Must match the "Environment" field of the nuget.org trusted-publishing
+    # policy. GitHub auto-creates this environment on first use.
+    environment: NUGET_API_KEY
     permissions:
       # OIDC token for NuGet Trusted Publishing.
       id-token: write
@@ -64,7 +66,8 @@ jobs:
         # via the trusted-publishing policy; nothing long-lived is stored.
         uses: NuGet/login@v1
         with:
-          user: ${{ vars.NUGET_USER }}
+          # nuget.org account that owns the trusted-publishing policy.
+          user: mrleo1nid
 
       - name: Push to NuGet
         shell: bash
