@@ -3,6 +3,17 @@
 All notable changes to ThreeXui.Net are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versions follow SemVer.
 
+## [Unreleased]
+
+### Added
+
+- `ThreeXui.DependencyInjection.AddXuiClient(...)`: one-call DI registration of a
+  singleton `IXuiClient` from `XuiClientOptions` (base URL, credentials, TLS
+  policy, timeout). Builds the `HttpClient` via the registered
+  `IXuiHttpClientFactory` (a default is added when absent) and resolves an
+  optional `ILogger<XuiClient>`.
+- CI: GitHub Actions workflows for build, tests, and tag-driven NuGet publish.
+
 ## [0.1.0] - 2026-06-30
 
 ### Added

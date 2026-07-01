@@ -1,0 +1,91 @@
+name: Publish NuGet
+
+# Packs and pushes the library to NuGet.org when a version tag (v1.2.3) is
+# pushed. The package version is taken from the tag, so the csproj <Version>
+# stays as the dev default and releases are driven entirely by the tag.
+#
+# Requires a repository secret named NUGET_API_KEY.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Package version to publish (e.g. 1.2.3)'
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Needed for the GitHub Release created on tag pushes.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing version $VERSION"
+
+      - name: Restore
+        run: dotnet restore src/ThreeXui.Net/ThreeXui.Net.csproj
+
+      - name: Pack
+        run: >
+          dotnet pack src/ThreeXui.Net/ThreeXui.Net.csproj
+          --configuration Release
+          --no-restore
+          -p:Version=${{ steps.version.outputs.version }}
+          -p:ContinuousIntegrationBuild=true
+          --output ${{ github.workspace }}/nupkgs
+
+      - name: Push to NuGet
+        shell: bash
+        # Pushing the .nupkg also uploads the adjacent .snupkg symbols package
+        # to nuget.org. --skip-duplicate makes re-runs idempotent.
+        run: >
+          dotnet nuget push "${{ github.workspace }}/nupkgs/*.nupkg"
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Extract release notes
+        id: notes
+        shell: bash
+        # Pull the section for this version out of CHANGELOG.md (everything
+        # between "## [x.y.z]" and the next "## [" heading). Empty is fine —
+        # the release step falls back to auto-generated notes.
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          awk -v ver="$VERSION" '
+            BEGIN { start="## [" ver "]" }
+            substr($0,1,length(start))==start {flag=1; next}
+            flag && substr($0,1,4)=="## [" {exit}
+            flag {print}
+          ' CHANGELOG.md > release-notes.md
+          echo "Extracted $(wc -l < release-notes.md) line(s) of notes for $VERSION"
+
+      - name: Create GitHub Release
+        # Only on real tag pushes — workflow_dispatch has no tag to release from.
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          generate_release_notes: true
+          files: |
+            ${{ github.workspace }}/nupkgs/*.nupkg
+            ${{ github.workspace }}/nupkgs/*.snupkg

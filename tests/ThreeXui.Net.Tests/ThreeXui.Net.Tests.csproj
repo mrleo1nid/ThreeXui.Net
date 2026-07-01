@@ -25,6 +25,8 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="FluentAssertions" Version="8.10.0" />
+    <!-- Concrete container so the AddXuiClient DI extension can be exercised. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
   </ItemGroup>
 
 </Project>

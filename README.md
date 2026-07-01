@@ -1,5 +1,11 @@
 # ThreeXui.Net
 
+[![Build](https://github.com/mrleo1nid/ThreeXui.Net/actions/workflows/build.yml/badge.svg)](https://github.com/mrleo1nid/ThreeXui.Net/actions/workflows/build.yml)
+[![Tests](https://github.com/mrleo1nid/ThreeXui.Net/actions/workflows/test.yml/badge.svg)](https://github.com/mrleo1nid/ThreeXui.Net/actions/workflows/test.yml)
+[![NuGet](https://img.shields.io/nuget/v/ThreeXui.Net.svg)](https://www.nuget.org/packages/ThreeXui.Net/)
+[![Downloads](https://img.shields.io/nuget/dt/ThreeXui.Net.svg)](https://www.nuget.org/packages/ThreeXui.Net/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A standalone .NET client for the **3x-ui / x-ui** panel REST API.
 
 Extracted from [TelegramPnvPanel](https://github.com/mrleo1nid/TelegramPnvPanel) into a
@@ -18,6 +24,47 @@ Mono, Unity) and **net10.0** (in-box BCL, no polyfills).
   HTML-instead-of-API, auth failure, server 5xx).
 - **Connection-string builders** for `vless`, `vmess`, `trojan`, `shadowsocks`, including
   `streamSettings` transport/security rendering and `externalProxy` (CDN/front) endpoints.
+
+## Install
+
+```bash
+dotnet add package ThreeXui.Net
+```
+
+## Dependency injection
+
+The simplest way to wire the client into an `IServiceCollection`
+(ASP.NET Core, generic host, worker service):
+
+```csharp
+using ThreeXui;
+using ThreeXui.DependencyInjection;
+
+builder.Services.AddXuiClient(options =>
+{
+    options.BaseAddress = new Uri("https://panel.example.com:2053/");
+    options.Username = "admin";
+    options.Password = "secret";
+    options.AllowInsecureTls = false;            // true for self-signed panels
+    // options.Timeout = TimeSpan.FromSeconds(30);
+});
+```
+
+Then just inject `IXuiClient`:
+
+```csharp
+public sealed class PanelService(IXuiClient client)
+{
+    public Task<XuiHealthCheckResult> PingAsync(CancellationToken ct) =>
+        client.CheckHealthAsync(ct);
+}
+```
+
+`AddXuiClient` registers `IXuiClient` as a **singleton** — one instance keeps the
+cookie session and per-inbound mutexes that serialize concurrent client
+mutations. The `HttpClient` is built once from the registered
+`IXuiHttpClientFactory` (a default is added unless you registered your own), and
+an `ILogger<XuiClient>` is picked up automatically when logging is configured.
 
 ## Quick start
 

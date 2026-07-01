@@ -40,6 +40,8 @@
   <ItemGroup>
     <!-- Logging abstraction only — no concrete logging dependency forced on consumers. -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.2" />
+    <!-- DI wiring (AddXuiClient) — abstractions only, no container forced on consumers. -->
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
   </ItemGroup>
 
   <!--
