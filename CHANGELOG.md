@@ -18,8 +18,8 @@ All notable changes to ThreeXui.Net are documented here. Format loosely follows
 
 ### Added
 
-- Initial extraction from TelegramPnvPanel into a standalone, multi-targeted
-  (`netstandard2.0` + `net10.0`) library.
+- Initial release: a standalone, multi-targeted (`netstandard2.0` + `net10.0`)
+  3x-ui / x-ui client library.
 - `IXuiClient` / `XuiClient`: cookie-session auth (lazy login + 401 re-auth),
   `CheckHealthAsync`, `GetServerInfoAsync`, `ListInboundsAsync`, `GetInboundAsync`,
   and per-client `AddClientAsync` / `UpdateClientAsync` / `RemoveClientAsync` via the
@@ -31,8 +31,3 @@ All notable changes to ThreeXui.Net are documented here. Format loosely follows
   `externalProxy` (CDN/front) endpoint resolution — decoupled from any domain model via
   `XuiConnectionStringRequest`.
 - `XuiBaseUrlValidator`: https-always / http-only-for-private-hosts policy.
-
-### Removed (relative to the in-app code)
-
-- Temporary diagnostic (`TEMP-DIAG`) logging that existed only while diagnosing the
-  inbound-overwrite wire format.

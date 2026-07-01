@@ -6,11 +6,9 @@
 [![Downloads](https://img.shields.io/nuget/dt/ThreeXui.Net.svg)](https://www.nuget.org/packages/ThreeXui.Net/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A standalone .NET client for the **3x-ui / x-ui** panel REST API.
-
-Extracted from [TelegramPnvPanel](https://github.com/mrleo1nid/TelegramPnvPanel) into a
-reusable library. Multi-targets **netstandard2.0** (max reach: .NET Framework 4.6.1+,
-Mono, Unity) and **net10.0** (in-box BCL, no polyfills).
+A standalone, reusable .NET client for the **3x-ui / x-ui** panel REST API.
+Multi-targets **netstandard2.0** (max reach: .NET Framework 4.6.1+, Mono, Unity)
+and **net10.0** (in-box BCL, no polyfills).
 
 ## What it does
 

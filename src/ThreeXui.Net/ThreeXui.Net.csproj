@@ -3,8 +3,8 @@
   <PropertyGroup>
     <!--
       Multi-target: netstandard2.0 for maximum reach (.NET Framework 4.6.1+,
-      Mono, Unity, old runtimes) and net10.0 so the primary consumer
-      (TelegramPnvPanel) binds the in-box BCL without polyfill shims.
+      Mono, Unity, old runtimes) and net10.0 so modern consumers bind the
+      in-box BCL without polyfill shims.
     -->
     <TargetFrameworks>netstandard2.0;net10.0</TargetFrameworks>
   </PropertyGroup>

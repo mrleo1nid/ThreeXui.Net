@@ -6,8 +6,8 @@ using Xunit;
 namespace ThreeXui.Net.Tests;
 
 /// <summary>
-/// Smoke tests for the library-only surface added during extraction: the
-/// HttpClient factory and the connection-string resolver's built-in registry.
+/// Smoke tests for the library-only surface: the HttpClient factory and the
+/// connection-string resolver's built-in registry.
 /// </summary>
 public class XuiHttpClientFactoryTests
 {
