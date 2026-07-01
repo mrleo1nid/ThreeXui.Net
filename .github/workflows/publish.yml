@@ -30,6 +30,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Full history + tags so the release notes can link a compare range
+          # against the previous version tag.
+          fetch-depth: 0
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -79,21 +83,52 @@ jobs:
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 
-      - name: Extract release notes
+      - name: Build release notes
         id: notes
         shell: bash
-        # Pull the section for this version out of CHANGELOG.md (everything
-        # between "## [x.y.z]" and the next "## [" heading). Empty is fine —
-        # the release step falls back to auto-generated notes.
+        # Compose the release body: the CHANGELOG section for this version
+        # (falling back to the [Unreleased] section), plus footer links to the
+        # NuGet package, the compare range against the previous tag, and the
+        # full CHANGELOG.md.
         run: |
           VERSION="${{ steps.version.outputs.version }}"
-          awk -v ver="$VERSION" '
-            BEGIN { start="## [" ver "]" }
-            substr($0,1,length(start))==start {flag=1; next}
-            flag && substr($0,1,4)=="## [" {exit}
-            flag {print}
-          ' CHANGELOG.md > release-notes.md
-          echo "Extracted $(wc -l < release-notes.md) line(s) of notes for $VERSION"
+          CURRENT="v$VERSION"
+          REPO_URL="${{ github.server_url }}/${{ github.repository }}"
+
+          # Everything between "## [<label>]" and the next "## [" heading.
+          extract() {
+            awk -v ver="$1" '
+              BEGIN { start="## [" ver "]" }
+              substr($0,1,length(start))==start {flag=1; next}
+              flag && substr($0,1,4)=="## [" {exit}
+              flag {print}
+            ' CHANGELOG.md
+          }
+          BODY="$(extract "$VERSION")"
+          [ -n "$(printf '%s' "$BODY" | tr -d '[:space:]')" ] || BODY="$(extract 'Unreleased')"
+
+          # Nearest lower version tag (semver order) for the compare link.
+          PREV_TAG="$(git tag --sort=-v:refname \
+            | awk -v cur="$CURRENT" 'found{print;exit} $0==cur{found=1}')"
+
+          {
+            if [ -n "$(printf '%s' "$BODY" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$BODY"
+            else
+              echo "Release $CURRENT."
+            fi
+            echo
+            echo "---"
+            echo
+            echo "📦 **NuGet:** [ThreeXui.Net $VERSION](https://www.nuget.org/packages/ThreeXui.Net/$VERSION)"
+            if [ -n "$PREV_TAG" ]; then
+              echo "🔄 **Full changelog:** [\`$PREV_TAG...$CURRENT\`]($REPO_URL/compare/$PREV_TAG...$CURRENT)"
+            fi
+            echo "📄 **CHANGELOG:** [CHANGELOG.md]($REPO_URL/blob/$CURRENT/CHANGELOG.md)"
+          } > release-notes.md
+
+          echo "----- release-notes.md -----"
+          cat release-notes.md
 
       - name: Create GitHub Release
         # Only on real tag pushes — workflow_dispatch has no tag to release from.
@@ -102,7 +137,6 @@ jobs:
         with:
           name: v${{ steps.version.outputs.version }}
           body_path: release-notes.md
-          generate_release_notes: true
           files: |
             ${{ github.workspace }}/nupkgs/*.nupkg
             ${{ github.workspace }}/nupkgs/*.snupkg
