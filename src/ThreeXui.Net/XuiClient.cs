@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http;
-using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Security.Authentication;
 using System.Text;
@@ -16,6 +15,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using ThreeXui.Http;
 
 namespace ThreeXui;
 
@@ -43,10 +43,16 @@ namespace ThreeXui;
 /// <c>CookieContainer</c> attaches to every subsequent request.
 /// </para>
 /// </summary>
-public sealed class XuiClient : IXuiClient
+public sealed class XuiClient : IXuiClient, IDisposable
 {
-    internal const string HealthPath = "/panel/api/server/status";
-    internal const string InfoPath = "/panel/api/server/info";
+    // The server-status endpoint doubles as the health probe and the version
+    // source. Its verb + availability differ across forks: 3x-ui v2.9+/v3.x
+    // expose it as GET /panel/api/server/status; x-ui / 3x-ui ≤ v2.8 registered
+    // it as POST; the oldest forks (e.g. x-ui v2.4.11) don't expose a
+    // /panel/api/server group at all (only /panel/api/inbounds). GetServerInfo
+    // and the health check both tolerate every one of those shapes.
+    internal const string StatusPath = "/panel/api/server/status";
+    internal const string HealthPath = StatusPath;
     internal const string InboundsListPath = "/panel/api/inbounds/list";
     internal const string InboundGetPathPrefix = "/panel/api/inbounds/get/";
     internal const string InboundUpdatePathPrefix = "/panel/api/inbounds/update/";
@@ -103,6 +109,13 @@ public sealed class XuiClient : IXuiClient
         StringComparer.OrdinalIgnoreCase
     );
 
+    /// <summary>
+    /// Wraps an already-built <paramref name="http"/> for one 3x-ui backend. The
+    /// client takes ownership of <paramref name="http"/> for its lifetime:
+    /// <see cref="Dispose"/> disposes it along with the internal synchronization
+    /// primitives. When registered via <c>AddXuiClient</c> the DI container drives
+    /// that disposal; for manual construction wrap the client in a <c>using</c>.
+    /// </summary>
     public XuiClient(
         HttpClient http,
         string username,
@@ -114,6 +127,27 @@ public sealed class XuiClient : IXuiClient
         _username = username ?? throw new ArgumentNullException(nameof(username));
         _password = password ?? throw new ArgumentNullException(nameof(password));
         _logger = logger ?? NullLogger<XuiClient>.Instance;
+    }
+
+    private bool _disposed;
+
+    /// <summary>
+    /// Disposes the login gate, every per-inbound mutex, and the owned
+    /// <c>HttpClient</c>. Idempotent. Not thread-safe against in-flight calls —
+    /// dispose only once the client is quiesced (the DI singleton path guarantees
+    /// this at container teardown).
+    /// </summary>
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+
+        _loginGate.Dispose();
+        foreach (var sem in _inboundMutexes.Values)
+            sem.Dispose();
+        _inboundMutexes.Clear();
+        _http.Dispose();
     }
 
     private async Task<XuiLoginOutcome> TryLoginAsync(CancellationToken cancellationToken)
@@ -227,7 +261,12 @@ public sealed class XuiClient : IXuiClient
                 return new XuiHealthCheckResult(Ok: true, ErrorMessage: null, Latency: sw.Elapsed);
             }
 
-            if (statusOutcome.StatusCode != 404)
+            // 404 (endpoint absent — e.g. x-ui v2.4.11 has no server API) and 405
+            // (registered under a different verb on some forks) both mean "this
+            // probe path isn't here", so fall back to inbounds/list. Any other
+            // failure (401/403/5xx) is a real fault and must surface, not be
+            // masked by the fallback.
+            if (statusOutcome.StatusCode != 404 && statusOutcome.StatusCode != 405)
             {
                 sw.Stop();
                 return new XuiHealthCheckResult(
@@ -238,8 +277,9 @@ public sealed class XuiClient : IXuiClient
             }
 
             _logger.LogInformation(
-                "3xui {HealthPath} returned 404 — trying fallback probe {FallbackPath}.",
+                "3xui {HealthPath} returned {Status} — trying fallback probe {FallbackPath}.",
                 HealthPath,
+                statusOutcome.StatusCode,
                 InboundsListPath
             );
 
@@ -332,7 +372,9 @@ public sealed class XuiClient : IXuiClient
         if (ex is TaskCanceledException || ex is OperationCanceledException)
         {
             var seconds =
-                httpTimeout is { } t && t > TimeSpan.Zero ? ((int)t.TotalSeconds).ToString() : "30";
+                httpTimeout is { } t && t > TimeSpan.Zero
+                    ? ((int)t.TotalSeconds).ToString()
+                    : XuiHttpClientFactory.DefaultTimeoutSeconds.ToString();
             return $"3xui request timed out after {seconds}s.";
         }
 
@@ -590,22 +632,99 @@ public sealed class XuiClient : IXuiClient
 
     public async Task<XuiServerInfo> GetServerInfoAsync(CancellationToken cancellationToken)
     {
-        using var response = await SendAsync(
-                HttpMethod.Get,
-                InfoPath,
-                content: null,
-                cancellationToken
-            )
-            .ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        // InboundCount is the one universally-available signal: every API-enabled
+        // fork exposes /panel/api/inbounds/list (x-ui v2.4.11 through 3x-ui v3.x),
+        // whereas the server-status API group is absent on the oldest forks. This
+        // throws on transport faults — matching the interface contract.
+        var inbounds = await ListInboundsAsync(cancellationToken).ConfigureAwait(false);
 
-        var payload = await response
-            .Content.ReadFromJsonAsync<ServerInfoPayload>(JsonOptions, cancellationToken)
-            .ConfigureAwait(false);
-        return new XuiServerInfo(
-            Version: payload?.Version ?? "unknown",
-            InboundCount: payload?.InboundCount ?? 0
-        );
+        // Version is best-effort across fork shapes; degrades to "unknown" rather
+        // than throwing so a status card still renders the inbound count.
+        var version = await TryResolveVersionAsync(cancellationToken).ConfigureAwait(false);
+
+        return new XuiServerInfo(Version: version, InboundCount: inbounds.Count);
+    }
+
+    /// <summary>
+    /// Resolves the panel/xray version tolerantly across fork shapes: tries GET
+    /// /panel/api/server/status (3x-ui v2.9+/v3.x) then POST (older x-ui/3x-ui),
+    /// skipping a verb that answers 404/405. Returns <c>"unknown"</c> when the
+    /// endpoint is absent (e.g. x-ui v2.4.11 has no server API) or the version
+    /// field can't be found. Never throws for a version miss.
+    /// </summary>
+    private async Task<string> TryResolveVersionAsync(CancellationToken cancellationToken)
+    {
+        foreach (var method in VersionProbeVerbs)
+        {
+            try
+            {
+                using var response = await SendAsync(
+                        method,
+                        StatusPath,
+                        content: null,
+                        cancellationToken
+                    )
+                    .ConfigureAwait(false);
+
+                // Endpoint not present under this verb — try the next one.
+                if (
+                    response.StatusCode == HttpStatusCode.NotFound
+                    || response.StatusCode == HttpStatusCode.MethodNotAllowed
+                )
+                    continue;
+                if (!response.IsSuccessStatusCode)
+                    continue;
+
+                var envelope = await ReadEnvelopeAsync<JsonObject>(response, cancellationToken)
+                    .ConfigureAwait(false);
+                var version = ExtractVersion(envelope.Obj);
+                if (!string.IsNullOrWhiteSpace(version))
+                    return version!;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "3xui server-status probe via {Method} failed; version stays unknown.",
+                    method
+                );
+            }
+        }
+
+        return "unknown";
+    }
+
+    private static readonly HttpMethod[] VersionProbeVerbs = { HttpMethod.Get, HttpMethod.Post };
+
+    /// <summary>
+    /// Pulls a version string out of the server-status <c>obj</c>. Prefers the
+    /// panel version (most meaningful for a status card), then the nested xray
+    /// core version, then a flat top-level <c>version</c> some forks emit.
+    /// </summary>
+    private static string? ExtractVersion(JsonObject? statusObj)
+    {
+        if (statusObj is null)
+            return null;
+
+        if (ReadString(statusObj, "panelVersion") is { Length: > 0 } panel)
+            return panel;
+        if (
+            statusObj["xray"] is JsonObject xray
+            && ReadString(xray, "version") is { Length: > 0 } xrayVersion
+        )
+            return xrayVersion;
+        if (ReadString(statusObj, "version") is { Length: > 0 } flat)
+            return flat;
+        return null;
+
+        static string? ReadString(JsonObject obj, string name) =>
+            obj[name] is JsonValue v && v.TryGetValue<string>(out var s) && !string.IsNullOrWhiteSpace(s)
+                ? s
+                : null;
     }
 
     public async Task<IReadOnlyList<XuiInboundSummaryDto>> ListInboundsAsync(
@@ -1145,8 +1264,6 @@ public sealed class XuiClient : IXuiClient
 
     private sealed record EnvelopeOf<T>(bool Success, string? Msg, T? Obj)
         where T : class;
-
-    private sealed record ServerInfoPayload(string? Version, int InboundCount);
 
     internal sealed class InboundPayload
     {

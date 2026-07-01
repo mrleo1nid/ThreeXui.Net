@@ -510,6 +510,42 @@ public class XuiClientHealthCheckTests
         listHits.Should().Be(0, "fallback должен сработать ТОЛЬКО на 404, не на 5xx");
     }
 
+    // ─── 14 ───────────────────────────────────────────────────────────────
+    // Some forks register /server/status under a different verb, so a GET yields
+    // 405. Like 404, that means "probe path not here" — the fallback to
+    // inbounds/list must fire and report the healthy panel.
+    [Fact]
+    public async Task HealthCheck_StatusEndpoint405_ProbesFallback()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        int listHits = 0;
+        var handler = new StubHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.EndsWith(XuiClient.LoginPath, StringComparison.Ordinal))
+                return JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"msg\":\"\"}");
+            if (path.EndsWith("/panel/api/server/status", StringComparison.Ordinal))
+                return new HttpResponseMessage(HttpStatusCode.MethodNotAllowed)
+                {
+                    Content = new StringContent("method not allowed", Encoding.UTF8, "text/plain"),
+                };
+            if (path.EndsWith("/panel/api/inbounds/list", StringComparison.Ordinal))
+            {
+                listHits++;
+                return JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"msg\":\"\",\"obj\":[]}");
+            }
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent($"unexpected path: {path}"),
+            };
+        });
+
+        var result = await BuildClient(handler).CheckHealthAsync(ct);
+
+        result.Ok.Should().BeTrue();
+        listHits.Should().Be(1, "405 на status-эндпоинте должен запускать fallback на inbounds/list");
+    }
+
     private static HttpResponseMessage JsonResponse(HttpStatusCode status, string body) =>
         new(status)
         {

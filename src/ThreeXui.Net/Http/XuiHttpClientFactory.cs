@@ -15,7 +15,14 @@ namespace ThreeXui.Http;
 /// </summary>
 public sealed class XuiHttpClientFactory : IXuiHttpClientFactory
 {
-    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// Per-request timeout applied when the caller doesn't specify one. Shared as
+    /// a single source of truth so error messages that quote the timeout stay in
+    /// sync with the value actually used.
+    /// </summary>
+    internal const int DefaultTimeoutSeconds = 30;
+
+    private static readonly TimeSpan DefaultTimeout = TimeSpan.FromSeconds(DefaultTimeoutSeconds);
 
     public HttpClient Create(Uri baseAddress, bool allowInsecureTls, TimeSpan? timeout = null)
     {

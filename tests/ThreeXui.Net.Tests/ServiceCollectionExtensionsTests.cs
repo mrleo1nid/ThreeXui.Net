@@ -101,6 +101,42 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddXuiClient_ThrowsOnPublicHttpBaseAddress()
+    {
+        var services = new ServiceCollection();
+        services.AddXuiClient(o =>
+        {
+            // Public host over plain HTTP would ship admin credentials in the
+            // clear — the base-URL policy must reject it.
+            o.BaseAddress = new Uri("http://panel.example.com:2053/");
+            o.Username = "admin";
+            o.Password = "secret";
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => provider.GetRequiredService<IXuiClient>();
+        act.Should().Throw<InvalidOperationException>().WithMessage("*BaseAddress*");
+    }
+
+    [Fact]
+    public void AddXuiClient_AllowsPrivateHttpBaseAddress()
+    {
+        var services = new ServiceCollection();
+        services.AddXuiClient(o =>
+        {
+            // Loopback over HTTP is a legitimate dev/self-hosted setup.
+            o.BaseAddress = new Uri("http://127.0.0.1:2053/");
+            o.Username = "admin";
+            o.Password = "secret";
+        });
+
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetService<IXuiClient>().Should().NotBeNull();
+    }
+
+    [Fact]
     public void AddXuiClient_ThrowsOnNullArguments()
     {
         var services = new ServiceCollection();

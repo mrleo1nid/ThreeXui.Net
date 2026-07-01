@@ -75,7 +75,7 @@ var http = httpFactory.Create(
     baseAddress: new Uri("https://panel.example.com:2053/"),
     allowInsecureTls: false);
 
-IXuiClient client = new XuiClient(http, username: "admin", password: "secret");
+using IXuiClient client = new XuiClient(http, username: "admin", password: "secret");
 
 // Health
 var health = await client.CheckHealthAsync(ct);
@@ -110,8 +110,21 @@ var link = resolver.Resolve("vless")!.Build(new XuiConnectionStringRequest(
 
 ## Notes
 
-- `XuiClient` takes an already-built `HttpClient`. Use `XuiHttpClientFactory` (cookie
-  container + no auto-redirect + optional self-signed TLS opt-in), or supply your own.
+- `XuiClient` takes an already-built `HttpClient` and owns it for its lifetime —
+  it implements `IDisposable`, so `Dispose()` (or the DI container at shutdown)
+  disposes the `HttpClient` and the internal locks. Use `XuiHttpClientFactory`
+  (cookie container + no auto-redirect + optional self-signed TLS opt-in), or
+  supply your own.
+- `AddXuiClient` enforces the base-URL policy: HTTPS is always allowed, plain
+  HTTP only for private/loopback/`*.local` hosts. A public `http://` panel is
+  rejected. Use `XuiBaseUrlValidator` directly to check a URL yourself.
+- Multiple 3x-ui / x-ui versions are supported: cross-version behaviour (e.g.
+  `GetServerInfoAsync`, health probing) degrades gracefully from the newest
+  `/panel/api/server/status` shape down to old forks (x-ui v2.4.11) that expose
+  only `/panel/api/inbounds`.
+- `AllowInsecureTls` on the netstandard2.0 target requires .NET Framework 4.7.1+
+  (self-signed cert skipping is a no-op-throwing API on 4.6.1–4.7.0); on
+  net10.0 / modern .NET it always works.
 - Logging is optional and uses `Microsoft.Extensions.Logging.Abstractions` —
   pass an `ILogger<XuiClient>` or nothing.
 - Secret storage, credential decryption, caching and metrics are intentionally **out of

@@ -2,6 +2,7 @@ using System;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
+using ThreeXui;
 using ThreeXui.Http;
 
 namespace ThreeXui.DependencyInjection;
@@ -75,6 +76,14 @@ public static class ServiceCollectionExtensions
         if (!options.BaseAddress.IsAbsoluteUri)
             throw new InvalidOperationException(
                 $"{nameof(XuiClientOptions)}.{nameof(XuiClientOptions.BaseAddress)} must be an absolute URI."
+            );
+        // Enforce the transport policy the library ships a validator for: HTTPS
+        // is always fine; plain HTTP only to private/loopback hosts. A public
+        // http:// panel would ship admin credentials in the clear, so reject it
+        // here rather than silently allowing it.
+        if (!XuiBaseUrlValidator.IsAllowed(options.BaseAddress.ToString(), out var reason))
+            throw new InvalidOperationException(
+                $"{nameof(XuiClientOptions)}.{nameof(XuiClientOptions.BaseAddress)} rejected: {reason}"
             );
         if (string.IsNullOrWhiteSpace(options.Username))
             throw new InvalidOperationException(

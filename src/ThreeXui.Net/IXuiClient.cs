@@ -17,8 +17,14 @@ namespace ThreeXui;
 /// that on the 3x-ui side); callers list inbounds and then add/update/remove
 /// the per-user clients within a chosen inbound.
 /// </para>
+///
+/// <para>
+/// Implements <see cref="System.IDisposable"/>: the client owns its
+/// <c>HttpClient</c> for its lifetime, so dispose it (or let the DI container
+/// dispose the registered singleton) at shutdown.
+/// </para>
 /// </summary>
-public interface IXuiClient
+public interface IXuiClient : IDisposable
 {
     /// <summary>
     /// Probes the backend's health endpoint. Returns ok=true with a non-null
@@ -29,7 +35,10 @@ public interface IXuiClient
 
     /// <summary>
     /// Returns minimal server-info (version, inbound count) for a status card.
-    /// Throws on transport errors.
+    /// The inbound count comes from <c>/panel/api/inbounds/list</c> and throws on
+    /// transport errors. The version is best-effort across fork shapes (GET then
+    /// POST <c>/panel/api/server/status</c>) and degrades to <c>"unknown"</c> when
+    /// the server API is absent (e.g. x-ui v2.4.11) rather than throwing.
     /// </summary>
     Task<XuiServerInfo> GetServerInfoAsync(CancellationToken cancellationToken);
 

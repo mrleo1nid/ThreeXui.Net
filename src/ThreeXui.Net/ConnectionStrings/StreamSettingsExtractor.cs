@@ -100,8 +100,11 @@ internal static class StreamSettingsExtractor
             if (root.ValueKind != JsonValueKind.Object)
                 return ParsedStreamSettings.Default;
 
-            var network = GetString(root, "network") ?? "tcp";
-            var security = GetString(root, "security") ?? "none";
+            // Normalize to lower-case: the switches below and the ordinal
+            // comparisons in the protocol builders match lower-case literals, so
+            // a fork that emits "WS"/"TCP" wouldn't otherwise be recognized.
+            var network = (GetString(root, "network") ?? "tcp").ToLowerInvariant();
+            var security = (GetString(root, "security") ?? "none").ToLowerInvariant();
 
             string? path = null;
             string? host = null;

@@ -46,14 +46,12 @@
 
   <!--
     netstandard2.0 needs the out-of-band System.Text.Json (JsonNode + Web
-    defaults) and System.Net.Http.Json (ReadFromJsonAsync), plus PolySharp to
-    synthesize the C# language polyfills (records/init, System.Index/Range,
-    required members) the modern source relies on. net10.0 has all of this
-    in-box, so the references are TFM-scoped.
+    defaults), plus PolySharp to synthesize the C# language polyfills
+    (records/init, System.Index/Range, required members) the modern source
+    relies on. net10.0 has all of this in-box, so the references are TFM-scoped.
   -->
   <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
-    <PackageReference Include="System.Net.Http.Json" Version="8.0.1" />
     <PackageReference Include="PolySharp" Version="1.15.0">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

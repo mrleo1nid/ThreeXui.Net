@@ -30,6 +30,13 @@ public sealed class XuiClientOptions
     /// <summary>
     /// When <c>true</c>, TLS certificate validation is skipped for this backend
     /// (self-signed panels). Defaults to <c>false</c>.
+    ///
+    /// <para>
+    /// On .NET (Core) / net10.0 this always works. On the netstandard2.0 target
+    /// running under .NET Framework, skipping validation requires 4.7.1+ (the
+    /// underlying <c>HttpClientHandler.ServerCertificateCustomValidationCallback</c>
+    /// throws <c>PlatformNotSupportedException</c> on 4.6.1–4.7.0).
+    /// </para>
     /// </summary>
     public bool AllowInsecureTls { get; set; }
 
