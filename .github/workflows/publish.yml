@@ -28,6 +28,8 @@ jobs:
       id-token: write
       # Create the GitHub Release on tag pushes.
       contents: write
+      # Publish to the repository's GitHub Packages feed.
+      packages: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +83,17 @@ jobs:
           dotnet nuget push "${{ github.workspace }}/nupkgs/*.nupkg"
           --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
           --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
+
+      - name: Push to GitHub Packages
+        shell: bash
+        # Also publish to the repo's GitHub Packages feed so the package shows
+        # up under the repository's "Packages". Uses the built-in GITHUB_TOKEN;
+        # the package links to this repo via <RepositoryUrl> in the csproj.
+        run: >
+          dotnet nuget push "${{ github.workspace }}/nupkgs/*.nupkg"
+          --api-key "${{ secrets.GITHUB_TOKEN }}"
+          --source https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
           --skip-duplicate
 
       - name: Build release notes
