@@ -4,7 +4,11 @@ name: Publish NuGet
 # pushed. The package version is taken from the tag, so the csproj <Version>
 # stays as the dev default and releases are driven entirely by the tag.
 #
-# Requires a repository secret named NUGET_API_KEY.
+# Auth uses NuGet Trusted Publishing (OIDC) — no long-lived API key secret.
+# One-time setup on nuget.org:
+#   Account -> Trusted Publishing -> add a policy for owner "mrleo1nid",
+#   repository "ThreeXui.Net", workflow "publish.yml".
+# Then set a repository variable NUGET_USER = your nuget.org account name.
 on:
   push:
     tags: ['v*']
@@ -17,8 +21,10 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    # Needed for the GitHub Release created on tag pushes.
     permissions:
+      # OIDC token for NuGet Trusted Publishing.
+      id-token: write
+      # Create the GitHub Release on tag pushes.
       contents: write
     steps:
       - uses: actions/checkout@v4
@@ -52,13 +58,21 @@ jobs:
           -p:ContinuousIntegrationBuild=true
           --output ${{ github.workspace }}/nupkgs
 
+      - name: NuGet login (Trusted Publishing)
+        id: nuget-login
+        # Exchanges the GitHub OIDC token for a short-lived nuget.org API key
+        # via the trusted-publishing policy; nothing long-lived is stored.
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+
       - name: Push to NuGet
         shell: bash
         # Pushing the .nupkg also uploads the adjacent .snupkg symbols package
         # to nuget.org. --skip-duplicate makes re-runs idempotent.
         run: >
           dotnet nuget push "${{ github.workspace }}/nupkgs/*.nupkg"
-          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --api-key "${{ steps.nuget-login.outputs.NUGET_API_KEY }}"
           --source https://api.nuget.org/v3/index.json
           --skip-duplicate
 

@@ -21,7 +21,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore ThreeXui.Net.slnx
 
       - name: Build
-        run: dotnet build --configuration Release --no-restore
+        run: dotnet build ThreeXui.Net.slnx --configuration Release --no-restore

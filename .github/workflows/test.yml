@@ -20,7 +20,7 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore ThreeXui.Net.slnx
 
       - name: Test
-        run: dotnet test --configuration Release --no-restore --verbosity normal
+        run: dotnet test ThreeXui.Net.slnx --configuration Release --no-restore --verbosity normal
