@@ -12,8 +12,9 @@ and **net10.0** (in-box BCL, no polyfills).
 
 ## What it does
 
-- **Cookie-session auth** with lazy login and automatic 401 re-auth, deduplicated under a
-  login gate so concurrent calls never burn duplicate logins.
+- **Cookie-session auth** with lazy login and automatic re-auth on an expired session
+  (`401`, `403`, or a `301`/`302`/`307`/`308` redirect back to `/login`), deduplicated
+  under a login gate so concurrent calls never burn duplicate logins.
 - **Inbound listing** (`/panel/api/inbounds/list`) and single-inbound fetch.
 - **Per-client CRUD** (add / update / remove) via a *Get → mutate `settings.clients[]` →
   Update inbound* fallback, which works on forks without reliable `addClient` / `delClient`

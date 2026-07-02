@@ -30,6 +30,11 @@ All notable changes to ThreeXui.Net are documented here. Format loosely follows
 - `AddXuiClient` now enforces the `XuiBaseUrlValidator` policy (HTTPS always;
   plain HTTP only to private/loopback hosts), rejecting a public `http://` panel
   instead of silently shipping credentials in the clear.
+- `XuiClient` only re-authenticated on a bare `401`. Some forks/reverse-proxies
+  signal an expired session with `403` (e.g. an nginx `auth_request` denial) or a
+  `301`/`302`/`307`/`308` redirect back to `/login` instead. `SendAsync` now
+  treats all of those as an expired session and re-logs in + retries once, same
+  as `401`.
 
 ### Changed
 

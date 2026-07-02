@@ -37,7 +37,9 @@ namespace ThreeXui;
 ///
 /// <para>
 /// 3x-ui authenticates via cookie sessions. <see cref="SendAsync"/> wraps each
-/// CRUD call with lazy login + 401 re-auth; the login POSTs <c>username</c> /
+/// CRUD call with lazy login + re-auth on any expired-session response (401,
+/// 403, or a 301/302/307/308 redirect back to <c>/login</c> — see
+/// <see cref="IndicatesExpiredSession"/>); the login POSTs <c>username</c> /
 /// <c>password</c> as form-data to <c>{base}/login</c> and the server replies
 /// with a <c>Set-Cookie: 3x-ui=...</c> that the HttpClient's
 /// <c>CookieContainer</c> attaches to every subsequent request.
@@ -573,12 +575,19 @@ public sealed class XuiClient : IXuiClient, IDisposable
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
 
-        if (response.StatusCode != HttpStatusCode.Unauthorized)
+        if (!IndicatesExpiredSession(response.StatusCode))
             return response;
 
         // Session expired — drop it, re-login once (serialized + deduplicated
-        // under the gate), retry. If the retry also 401s we let the caller see
-        // it (likely real credential rotation).
+        // under the gate), retry. If the retry also fails the same way we let
+        // the caller see it (likely real credential rotation).
+        //
+        // Besides the textbook 401, some forks/reverse-proxies answer a stale
+        // session with 403 (nginx auth_request denial) or with a 301/302/307/308
+        // redirect back to the /login page instead of a JSON 401 body —
+        // AllowAutoRedirect is off (see XuiHttpClientFactory) specifically so
+        // those redirects surface here as a status code rather than being
+        // silently followed.
         response.Dispose();
         await InvalidateAndReLoginAsync(generationAtSend, cancellationToken).ConfigureAwait(false);
 
@@ -591,13 +600,32 @@ public sealed class XuiClient : IXuiClient, IDisposable
     }
 
     /// <summary>
-    /// Handles a 401 from <see cref="SendAsync"/> under <see cref="_loginGate"/>:
-    /// if the session generation hasn't already advanced past
-    /// <paramref name="staleGeneration"/> (i.e. no sibling request re-logged in
-    /// since we issued our request), drop the cached session and log in once.
-    /// Serializing this through the same gate as <see cref="TryLoginAsync"/>
-    /// guarantees that N concurrent 401s collapse into a single re-login and
-    /// that a stale reset can never clobber a freshly established session.
+    /// True for any status a 3x-ui backend (or a proxy in front of it) uses to
+    /// signal "your session is no longer valid": the standard 401, the 403 some
+    /// forks/proxies substitute for it, and the 301/302/307/308 redirects back
+    /// to <c>/login</c> that others emit instead of a JSON error body.
+    /// </summary>
+    private static bool IndicatesExpiredSession(HttpStatusCode status) =>
+        status switch
+        {
+            HttpStatusCode.Unauthorized => true,
+            HttpStatusCode.Forbidden => true,
+            HttpStatusCode.MovedPermanently => true,
+            HttpStatusCode.Found => true,
+            HttpStatusCode.RedirectKeepVerb => true, // 307
+            (HttpStatusCode)308 => true, // PermanentRedirect — absent from netstandard2.0's enum
+            _ => false,
+        };
+
+    /// <summary>
+    /// Handles an expired-session response (see <see cref="IndicatesExpiredSession"/>)
+    /// from <see cref="SendAsync"/> under <see cref="_loginGate"/>: if the session
+    /// generation hasn't already advanced past <paramref name="staleGeneration"/>
+    /// (i.e. no sibling request re-logged in since we issued our request), drop
+    /// the cached session and log in once. Serializing this through the same
+    /// gate as <see cref="TryLoginAsync"/> guarantees that N concurrent
+    /// expired-session responses collapse into a single re-login and that a
+    /// stale reset can never clobber a freshly established session.
     /// </summary>
     private async Task InvalidateAndReLoginAsync(
         int staleGeneration,
