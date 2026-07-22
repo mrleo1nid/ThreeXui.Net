@@ -48,11 +48,18 @@ namespace ThreeXui;
 public sealed class XuiClient : IXuiClient, IDisposable
 {
     // The server-status endpoint doubles as the health probe and the version
-    // source. Its verb + availability differ across forks: 3x-ui v2.9+/v3.x
-    // expose it as GET /panel/api/server/status; x-ui / 3x-ui ≤ v2.8 registered
-    // it as POST; the oldest forks (e.g. x-ui v2.4.11) don't expose a
-    // /panel/api/server group at all (only /panel/api/inbounds). GetServerInfo
-    // and the health check both tolerate every one of those shapes.
+    // source. Its verb + availability differ across forks: confirmed GET
+    // /panel/api/server/status on 3x-ui v2.8.11 through v2.9+/v3.x (checked
+    // against MHSanaei/3x-ui source at those tags); some older x-ui/3x-ui
+    // builds are reported to have registered it as POST instead — kept as a
+    // fallback since it costs nothing when GET already succeeds. The oldest
+    // forks (e.g. x-ui v2.4.11) don't expose a /panel/api/server group at all
+    // (only /panel/api/inbounds). GetServerInfo and the health check both
+    // tolerate every one of those shapes. Also confirmed on v2.8.11: the
+    // status response has no top-level "panelVersion" field (added in a
+    // later rewrite) — only "xray.version" — so ExtractVersion's fallback
+    // chain correctly reports the Xray-core version there, not the panel
+    // version; this is the documented degradation, not a bug.
     internal const string StatusPath = "/panel/api/server/status";
     internal const string HealthPath = StatusPath;
     internal const string InboundsListPath = "/panel/api/inbounds/list";
@@ -675,10 +682,14 @@ public sealed class XuiClient : IXuiClient, IDisposable
 
     /// <summary>
     /// Resolves the panel/xray version tolerantly across fork shapes: tries GET
-    /// /panel/api/server/status (3x-ui v2.9+/v3.x) then POST (older x-ui/3x-ui),
-    /// skipping a verb that answers 404/405. Returns <c>"unknown"</c> when the
-    /// endpoint is absent (e.g. x-ui v2.4.11 has no server API) or the version
-    /// field can't be found. Never throws for a version miss.
+    /// /panel/api/server/status (confirmed on 3x-ui v2.8.11 through v2.9+/v3.x)
+    /// then POST (reported on some older builds), skipping a verb that answers
+    /// 404/405. Returns <c>"unknown"</c> when the endpoint is absent (e.g. x-ui
+    /// v2.4.11 has no server API) or the version field can't be found — this
+    /// includes 3x-ui v2.8.11, whose status response has no top-level
+    /// "panelVersion" (only "xray.version"), so the result there is the
+    /// Xray-core version, not the panel's own "2.8.11". Never throws for a
+    /// version miss.
     /// </summary>
     private async Task<string> TryResolveVersionAsync(CancellationToken cancellationToken)
     {
