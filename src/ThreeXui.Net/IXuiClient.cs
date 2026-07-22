@@ -56,8 +56,34 @@ public interface IXuiClient : IDisposable
     /// Fetches a single inbound by its 3x-ui id. Returns <c>null</c> on 404 so
     /// callers can detect an inbound that was deleted out-of-band on the 3x-ui
     /// side.
+    ///
+    /// <para>
+    /// <b>Does not reliably carry per-client traffic.</b> On at least 3x-ui
+    /// v2.8.11, the single-inbound endpoint's backing query omits
+    /// <c>clientStats</c> entirely (confirmed against source — no
+    /// <c>Preload("ClientStats")</c> on that code path), so
+    /// <c>RawInboundJson</c>'s <c>clientStats</c> will be <c>null</c> even
+    /// though clients have real traffic. Use
+    /// <see cref="GetInboundClientTrafficAsync"/> for traffic instead.
+    /// </para>
     /// </summary>
     Task<XuiInboundDto?> GetInboundAsync(string externalId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Per-client traffic (email → up/down bytes) for the given inbound.
+    /// Sourced from <c>/panel/api/inbounds/list</c> — unlike
+    /// <see cref="GetInboundAsync"/>'s single-inbound endpoint, the list
+    /// endpoint reliably preloads <c>clientStats</c> on 3x-ui (its own UI list
+    /// view depends on it). Returns an empty list if the inbound has no
+    /// clients or wasn't found. Fetches and scans every inbound each call —
+    /// 3x-ui doesn't expose a per-inbound traffic-only endpoint that's
+    /// guaranteed cross-version, so this trades one extra bit of parsing for
+    /// correctness rather than adding a second, narrower HTTP call.
+    /// </summary>
+    Task<IReadOnlyList<XuiClientTrafficInfo>> GetInboundClientTrafficAsync(
+        string externalId,
+        CancellationToken cancellationToken
+    );
 
     /// <summary>
     /// Appends a new client to an inbound's <c>settings.clients[]</c> via the
@@ -124,6 +150,13 @@ public sealed record XuiInboundSummaryDto(
     bool Enable,
     string SettingsJson
 );
+
+/// <summary>
+/// One client's cumulative traffic, from <see cref="IXuiClient.GetInboundClientTrafficAsync"/>.
+/// <see cref="Email"/> matches <c>settings.clients[].email</c> — the same field
+/// callers use to correlate a locally-stored client with its 3x-ui row.
+/// </summary>
+public sealed record XuiClientTrafficInfo(string Email, long UpBytes, long DownBytes);
 
 /// <summary>
 /// Request body for <see cref="IXuiClient.AddClientAsync"/>. Carries the

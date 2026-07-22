@@ -770,6 +770,73 @@ public sealed class XuiClient : IXuiClient, IDisposable
         CancellationToken cancellationToken
     )
     {
+        var payloads = await FetchInboundPayloadsAsync(cancellationToken).ConfigureAwait(false);
+        var result = new List<XuiInboundSummaryDto>(payloads.Length);
+        foreach (var payload in payloads)
+        {
+            result.Add(
+                new XuiInboundSummaryDto(
+                    ExternalId: payload.Id?.ToString() ?? string.Empty,
+                    Port: payload.Port,
+                    Protocol: payload.Protocol ?? string.Empty,
+                    Remark: payload.Remark ?? string.Empty,
+                    Enable: payload.Enable,
+                    SettingsJson: payload.Settings ?? "{}"
+                )
+            );
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Per-client traffic (email → up/down bytes) for a single inbound, sourced
+    /// from GET /panel/api/inbounds/list rather than the single-inbound
+    /// /panel/api/inbounds/get/{id} used by <see cref="GetInboundAsync"/>.
+    /// Confirmed against 3x-ui v2.8.11 source: <c>InboundService.GetInbound</c>
+    /// (single) queries with plain <c>db.Model(...).First(...)</c> — no
+    /// <c>.Preload("ClientStats")</c> — so that endpoint's <c>clientStats</c> is
+    /// always <c>null</c>, while <c>InboundService.GetInbounds</c> (list) does
+    /// preload it (the panel's own UI list view depends on it). A caller that
+    /// built client-traffic sync on top of <see cref="GetInboundAsync"/> would
+    /// silently see zero traffic for every client on every inbound on that
+    /// panel version — this method exists specifically to avoid that trap.
+    /// </summary>
+    public async Task<IReadOnlyList<XuiClientTrafficInfo>> GetInboundClientTrafficAsync(
+        string externalId,
+        CancellationToken cancellationToken
+    )
+    {
+        Throw.IfNullOrWhiteSpace(externalId, nameof(externalId));
+
+        var payloads = await FetchInboundPayloadsAsync(cancellationToken).ConfigureAwait(false);
+
+        InboundPayload? match = null;
+        foreach (var payload in payloads)
+        {
+            if (string.Equals(payload.Id?.ToString(), externalId, StringComparison.Ordinal))
+            {
+                match = payload;
+                break;
+            }
+        }
+
+        if (match?.ClientStats is not { Length: > 0 } stats)
+            return Array.Empty<XuiClientTrafficInfo>();
+
+        var result = new List<XuiClientTrafficInfo>(stats.Length);
+        foreach (var stat in stats)
+        {
+            if (stat.Email is not { Length: > 0 } email)
+                continue;
+            result.Add(new XuiClientTrafficInfo(email, stat.Up, stat.Down));
+        }
+        return result;
+    }
+
+    private async Task<InboundPayload[]> FetchInboundPayloadsAsync(
+        CancellationToken cancellationToken
+    )
+    {
         using var response = await SendAsync(
                 HttpMethod.Get,
                 InboundsListPath,
@@ -785,22 +852,7 @@ public sealed class XuiClient : IXuiClient, IDisposable
             throw new InvalidOperationException(
                 $"3xui rejected inbounds/list request: {envelope?.Msg ?? "unknown error"}."
             );
-        var obj = envelope.Obj ?? Array.Empty<InboundPayload>();
-        var result = new List<XuiInboundSummaryDto>(obj.Length);
-        foreach (var payload in obj)
-        {
-            result.Add(
-                new XuiInboundSummaryDto(
-                    ExternalId: payload.Id?.ToString() ?? string.Empty,
-                    Port: payload.Port,
-                    Protocol: payload.Protocol ?? string.Empty,
-                    Remark: payload.Remark ?? string.Empty,
-                    Enable: payload.Enable,
-                    SettingsJson: payload.Settings ?? "{}"
-                )
-            );
-        }
-        return result;
+        return envelope.Obj ?? Array.Empty<InboundPayload>();
     }
 
     public async Task<XuiInboundDto?> GetInboundAsync(
@@ -1356,6 +1408,15 @@ public sealed class XuiClient : IXuiClient, IDisposable
 
     internal sealed class ClientStatPayload
     {
+        [JsonPropertyName("email")]
+        public string? Email { get; init; }
+
+        [JsonPropertyName("up")]
+        public long Up { get; init; }
+
+        [JsonPropertyName("down")]
+        public long Down { get; init; }
+
         [JsonPropertyName("last_login")]
         public long? LastLogin { get; init; }
     }
