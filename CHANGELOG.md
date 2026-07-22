@@ -7,6 +7,15 @@ All notable changes to ThreeXui.Net are documented here. Format loosely follows
 
 ### Added
 
+- `IXuiClient.GetInboundClientTrafficAsync(externalId, ct)`: per-client traffic
+  (email → up/down bytes) sourced from `/panel/api/inbounds/list`. Fixes a
+  cross-version trap: `GetInboundAsync`'s single-inbound endpoint
+  (`/panel/api/inbounds/get/{id}`) does not reliably preload `clientStats` —
+  confirmed against 3x-ui v2.8.11 source, whose single-inbound query has no
+  `Preload("ClientStats")` (the list endpoint does). Code built on
+  `GetInboundAsync` for traffic would silently see zero traffic for every
+  client on that panel version; this method reads from the endpoint that
+  actually carries it.
 - `StreamSettingsExtractor`/`VlessConnectionStringBuilder`/`TrojanConnectionStringBuilder`/
   `VmessConnectionStringBuilder` now understand the `xhttp` (splithttp) transport —
   the last of 3x-ui's six transports (tcp, mKCP, WebSocket, gRPC, HTTPUpgrade,

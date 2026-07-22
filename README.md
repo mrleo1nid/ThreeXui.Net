@@ -16,6 +16,9 @@ and **net10.0** (in-box BCL, no polyfills).
   (`401`, `403`, or a `301`/`302`/`307`/`308` redirect back to `/login`), deduplicated
   under a login gate so concurrent calls never burn duplicate logins.
 - **Inbound listing** (`/panel/api/inbounds/list`) and single-inbound fetch.
+- **Per-client traffic** (`GetInboundClientTrafficAsync`) from the list endpoint —
+  not the single-inbound one, which some 3x-ui versions (confirmed on v2.8.11)
+  don't preload `clientStats` on.
 - **Per-client CRUD** (add / update / remove) via a *Get → mutate `settings.clients[]` →
   Update inbound* fallback, which works on forks without reliable `addClient` / `delClient`
   endpoints (notably x-ui v2.4.11). Serialized by a per-inbound mutex.
