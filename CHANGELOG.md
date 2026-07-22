@@ -7,6 +7,26 @@ All notable changes to ThreeXui.Net are documented here. Format loosely follows
 
 ### Added
 
+- `StreamSettingsExtractor`/`VlessConnectionStringBuilder`/`TrojanConnectionStringBuilder`/
+  `VmessConnectionStringBuilder` now understand the `xhttp` (splithttp) transport —
+  the last of 3x-ui's six transports (tcp, mKCP, WebSocket, gRPC, HTTPUpgrade,
+  XHTTP) without support. `path`/`host`/`mode` are read from
+  `streamSettings.xhttpSettings`, mirroring the existing ws/httpupgrade
+  handling; `mode` defaults to `"auto"` when absent (3x-ui's own default), and
+  an empty `host` (the common reverse-proxy shape) is omitted rather than
+  emitted as `host=`.
+- `XuiConnectionStringRequest.ForcedFingerprint`: overrides the TLS/Reality `fp`
+  emitted in vless/trojan (`fp=`) and vmess (JSON `fp`) links regardless of
+  `streamSettings.tlsSettings`/`realitySettings` — most 3x-ui inbounds leave
+  fingerprint blank, and real client apps then fall back to fingerprinting the
+  panel's own TLS stack unless a share-link sets one explicitly. Ignored for
+  plaintext (`security=none`) links.
+- `XuiConnectionStringRequest.ForcedPacketEncoding`: emits
+  `packetEncoding=<value>` (e.g. `xudp`) in vless/trojan query links — not a
+  3x-ui/streamSettings concept, but required by some clients for UDP relaying
+  over certain transports (notably `xhttp`); 3x-ui's own generated links never
+  include it. Omitted by default, so existing links are byte-for-byte
+  unchanged unless a caller opts in.
 - `ThreeXui.DependencyInjection.AddXuiClient(...)`: one-call DI registration of a
   singleton `IXuiClient` from `XuiClientOptions` (base URL, credentials, TLS
   policy, timeout). Builds the `HttpClient` via the registered

@@ -76,7 +76,7 @@ public sealed class VmessConnectionStringBuilder : IXuiConnectionStringBuilder
             path = vmessPath,
             tls = vmessTls,
             sni = parsed.Sni ?? "",
-            fp = parsed.Fingerprint ?? "",
+            fp = request.ForcedFingerprint ?? parsed.Fingerprint ?? "",
             alpn = vmessAlpn,
         };
         var json = JsonSerializer.Serialize(payload);

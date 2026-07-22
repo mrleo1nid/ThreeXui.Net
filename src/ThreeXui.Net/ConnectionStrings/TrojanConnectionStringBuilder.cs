@@ -28,7 +28,12 @@ public sealed class TrojanConnectionStringBuilder : IXuiConnectionStringBuilder
             request.PublicHost,
             request.BaseUrl
         );
-        var query = StreamSettingsExtractor.BuildVlessTrojanQuery(parsed, ep.Security);
+        var query = StreamSettingsExtractor.BuildVlessTrojanQuery(
+            parsed,
+            ep.Security,
+            request.ForcedFingerprint,
+            request.ForcedPacketEncoding
+        );
         return $"trojan://{Uri.EscapeDataString(password)}@{ep.Host}:{ep.Port}?{query}#{name}";
     }
 }

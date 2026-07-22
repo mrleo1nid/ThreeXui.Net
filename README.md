@@ -22,7 +22,11 @@ and **net10.0** (in-box BCL, no polyfills).
 - **Health probing** with classified error messages (TLS handshake, unreachable host,
   HTML-instead-of-API, auth failure, server 5xx).
 - **Connection-string builders** for `vless`, `vmess`, `trojan`, `shadowsocks`, including
-  `streamSettings` transport/security rendering and `externalProxy` (CDN/front) endpoints.
+  `streamSettings` transport/security rendering (tcp, mKCP, WebSocket, gRPC,
+  HTTPUpgrade, XHTTP — all six 3x-ui transports) and `externalProxy` (CDN/front)
+  endpoints. `XuiConnectionStringRequest.ForcedFingerprint`/`ForcedPacketEncoding`
+  let the caller override/add link params (`fp`, `packetEncoding`) that 3x-ui
+  itself doesn't set but real client apps need.
 
 ## Install
 

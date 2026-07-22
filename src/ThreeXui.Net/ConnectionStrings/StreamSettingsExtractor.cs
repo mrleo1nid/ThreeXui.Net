@@ -54,6 +54,7 @@ internal static class StreamSettingsExtractor
         string? GrpcMode,
         string? HeaderType,
         string? Seed,
+        string? XhttpMode,
         string? Sni,
         string? Fingerprint,
         string[]? Alpn,
@@ -74,6 +75,7 @@ internal static class StreamSettingsExtractor
                 GrpcMode: null,
                 HeaderType: null,
                 Seed: null,
+                XhttpMode: null,
                 Sni: null,
                 Fingerprint: null,
                 Alpn: null,
@@ -112,6 +114,7 @@ internal static class StreamSettingsExtractor
             string? grpcMode = null;
             string? headerType = null;
             string? seed = null;
+            string? xhttpMode = null;
 
             switch (network)
             {
@@ -129,6 +132,19 @@ internal static class StreamSettingsExtractor
                     {
                         path = GetString(hu, "path");
                         host = GetString(hu, "host");
+                    }
+                    break;
+
+                case "xhttp":
+                    // 3x-ui's XHTTP (a.k.a. splithttp) inbound. host is frequently
+                    // left blank (reverse-proxy setups where the CDN/front supplies
+                    // its own Host header) — Append() below omits it when empty,
+                    // same as ws/httpupgrade.
+                    if (GetNested(root, "xhttpSettings", out var xhttp))
+                    {
+                        path = GetString(xhttp, "path");
+                        host = GetString(xhttp, "host");
+                        xhttpMode = GetString(xhttp, "mode");
                     }
                     break;
 
@@ -225,6 +241,7 @@ internal static class StreamSettingsExtractor
                 GrpcMode: grpcMode,
                 HeaderType: headerType,
                 Seed: seed,
+                XhttpMode: xhttpMode,
                 Sni: sni,
                 Fingerprint: fingerprint,
                 Alpn: alpn,
@@ -287,9 +304,18 @@ internal static class StreamSettingsExtractor
     /// <paramref name="securityOverride"/> drives the tls/reality/none branch (it
     /// may differ from <c>parsed.Security</c> when an externalProxy
     /// <c>forceTls</c> overrides it); reality/transport params come from
-    /// <paramref name="parsed"/>.
+    /// <paramref name="parsed"/>. <paramref name="forcedFingerprint"/> and
+    /// <paramref name="forcedPacketEncoding"/> mirror
+    /// <see cref="XuiConnectionStringRequest.ForcedFingerprint"/> /
+    /// <see cref="XuiConnectionStringRequest.ForcedPacketEncoding"/> — see their
+    /// doc for semantics.
     /// </summary>
-    public static string BuildVlessTrojanQuery(ParsedStreamSettings parsed, string securityOverride)
+    public static string BuildVlessTrojanQuery(
+        ParsedStreamSettings parsed,
+        string securityOverride,
+        string? forcedFingerprint = null,
+        string? forcedPacketEncoding = null
+    )
     {
         var sb = new StringBuilder();
 
@@ -300,8 +326,11 @@ internal static class StreamSettingsExtractor
         {
             case "ws":
             case "httpupgrade":
+            case "xhttp":
                 Append(sb, "path", parsed.Path);
                 Append(sb, "host", parsed.Host);
+                if (string.Equals(parsed.Network, "xhttp", StringComparison.Ordinal))
+                    Append(sb, "mode", parsed.XhttpMode ?? "auto", escape: false);
                 break;
             case "grpc":
                 Append(sb, "serviceName", parsed.ServiceName);
@@ -325,7 +354,7 @@ internal static class StreamSettingsExtractor
         {
             case "tls":
                 Append(sb, "sni", parsed.Sni);
-                Append(sb, "fp", parsed.Fingerprint);
+                Append(sb, "fp", forcedFingerprint ?? parsed.Fingerprint);
                 if (parsed.Alpn is { Length: > 0 })
                     Append(sb, "alpn", string.Join(",", parsed.Alpn));
                 break;
@@ -334,9 +363,11 @@ internal static class StreamSettingsExtractor
                 Append(sb, "pbk", parsed.PublicKey);
                 Append(sb, "sid", parsed.ShortId);
                 Append(sb, "spx", parsed.SpiderX);
-                Append(sb, "fp", parsed.Fingerprint);
+                Append(sb, "fp", forcedFingerprint ?? parsed.Fingerprint);
                 break;
         }
+
+        Append(sb, "packetEncoding", forcedPacketEncoding, escape: false);
 
         return sb.ToString();
     }

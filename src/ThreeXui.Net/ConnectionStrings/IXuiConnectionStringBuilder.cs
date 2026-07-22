@@ -18,13 +18,31 @@ namespace ThreeXui.ConnectionStrings;
 /// </param>
 /// <param name="BaseUrl">The backend base URL — its host is the fallback when <paramref name="PublicHost"/> is blank.</param>
 /// <param name="Inbound">The 3x-ui inbound (carries the verbatim <c>settings</c> + <c>streamSettings</c> blobs).</param>
+/// <param name="ForcedFingerprint">
+/// Overrides the TLS/Reality <c>fp</c> emitted in the link, regardless of what
+/// <c>streamSettings.tlsSettings.fingerprint</c> / <c>realitySettings.fingerprint</c>
+/// says (3x-ui often leaves this blank, and most client apps fall back to
+/// fingerprinting the panel's own TLS stack unless a share-link sets one
+/// explicitly). Ignored when the link has no TLS/Reality security. Applies to
+/// vless, trojan (query <c>fp=</c>) and vmess (JSON <c>fp</c>); shadowsocks
+/// doesn't carry TLS the same way and ignores it.
+/// </param>
+/// <param name="ForcedPacketEncoding">
+/// Emits <c>packetEncoding=&lt;value&gt;</c> (e.g. <c>"xudp"</c>) in vless/trojan
+/// query-based links. Not a 3x-ui/streamSettings concept — some transports (most
+/// notably <c>xhttp</c>) need it for UDP relaying to work in real clients, and
+/// 3x-ui's own generated links never include it. Null (default) omits the
+/// parameter entirely, preserving the pre-existing link shape.
+/// </param>
 public sealed record XuiConnectionStringRequest(
     string ExternalClientId,
     string Name,
     int InboundPort,
     string? PublicHost,
     string BaseUrl,
-    XuiInboundDto Inbound
+    XuiInboundDto Inbound,
+    string? ForcedFingerprint = null,
+    string? ForcedPacketEncoding = null
 );
 
 /// <summary>

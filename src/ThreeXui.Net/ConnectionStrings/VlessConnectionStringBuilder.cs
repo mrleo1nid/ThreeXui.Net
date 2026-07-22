@@ -32,7 +32,7 @@ public sealed class VlessConnectionStringBuilder : IXuiConnectionStringBuilder
         // VLESS always carries an explicit encryption=none (literal); trojan does
         // not, so this stays vless-specific rather than in BuildVlessTrojanQuery.
         var query =
-            $"encryption=none&{StreamSettingsExtractor.BuildVlessTrojanQuery(parsed, ep.Security)}";
+            $"encryption=none&{StreamSettingsExtractor.BuildVlessTrojanQuery(parsed, ep.Security, request.ForcedFingerprint, request.ForcedPacketEncoding)}";
 
         // flow lives in settings.clients[].flow (NOT streamSettings); required for
         // reality+Vision inbounds (e.g. xtls-rprx-vision). Append only if present.

@@ -1261,4 +1261,343 @@ public class ConnectionStringBuilderTests
         // No externalProxy → backend host + inbound listening port.
         url.Should().Contain("@origin.example.com:25578");
     }
+
+    // ─── XHTTP transport (splithttp) ────────────────────────────────────
+
+    /// <summary>
+    /// Vless + XHTTP + TLS, empty host (the common reverse-proxy shape 3x-ui
+    /// itself produces): path/mode carried, host omitted (Append() skips empty
+    /// values, same as ws/httpupgrade), sni/fp/alpn from tlsSettings.
+    /// </summary>
+    [Fact]
+    public void Vless_Xhttp_Tls_EmptyHost_ProducesPathAndModeButNoHost()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("60", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "60",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"61312703-355f-4ed8-b59e-14ca6631ce15"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/videocdn","host":"","mode":"auto"},"tlsSettings":{"serverName":"zov.pipipupu.fun"}}"""
+        );
+
+        var url = builder.Build(
+            MakeConfig("61312703-355f-4ed8-b59e-14ca6631ce15", "xhttp_strong"),
+            inbound,
+            xui,
+            BackendWith("zov.pipipupu.fun")
+        );
+
+        url.Should().Contain("type=xhttp");
+        url.Should().Contain("security=tls");
+        url.Should().Contain("path=%2Fvideocdn");
+        url.Should().Contain("mode=auto");
+        url.Should().Contain("sni=zov.pipipupu.fun");
+        url.Should().NotContain("host=");
+    }
+
+    /// <summary>
+    /// XHTTP mode absent in xhttpSettings → defaults to "auto" (3x-ui's own
+    /// default), rather than omitting the parameter — real clients expect it.
+    /// </summary>
+    [Fact]
+    public void Vless_Xhttp_ModeAbsent_DefaultsToAuto()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("61", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "61",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"aaaaaaaa-0000-0000-0000-000000000001"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/x"},"tlsSettings":{}}"""
+        );
+
+        var url = builder.Build(
+            MakeConfig("aaaaaaaa-0000-0000-0000-000000000001", "XhttpDefaultMode"),
+            inbound,
+            xui,
+            BackendWith("h.example.com")
+        );
+
+        url.Should().Contain("mode=auto");
+    }
+
+    /// <summary>
+    /// XHTTP with a real (non-empty) host set — the builder must still emit it,
+    /// same as ws/httpupgrade; omission is specific to the empty-string case.
+    /// </summary>
+    [Fact]
+    public void Vless_Xhttp_NonEmptyHost_IsIncluded()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("62", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "62",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"aaaaaaaa-0000-0000-0000-000000000002"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/x","host":"cdn.example.com","mode":"packet-up"},"tlsSettings":{}}"""
+        );
+
+        var url = builder.Build(
+            MakeConfig("aaaaaaaa-0000-0000-0000-000000000002", "XhttpHost"),
+            inbound,
+            xui,
+            BackendWith("h.example.com")
+        );
+
+        url.Should().Contain("host=cdn.example.com");
+        url.Should().Contain("mode=packet-up");
+    }
+
+    /// <summary>Trojan gets the same XHTTP handling as Vless (shared BuildVlessTrojanQuery).</summary>
+    [Fact]
+    public void Trojan_Xhttp_Tls_ProducesPathAndMode()
+    {
+        var builder = new TrojanConnectionStringBuilder();
+        var inbound = InboundWith("63", 443, "trojan");
+        var xui = new XuiInboundDto(
+            Id: "63",
+            Port: 443,
+            Protocol: "trojan",
+            Settings: """{"clients":[{"password":"xhttp-pwd"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/videocdn","host":""},"tlsSettings":{}}"""
+        );
+
+        var url = builder.Build(MakeConfig("xhttp-pwd", "TrojanXhttp"), inbound, xui, BackendWith("t.example.com"));
+
+        url.Should().Contain("type=xhttp");
+        url.Should().Contain("path=%2Fvideocdn");
+        url.Should().Contain("mode=auto");
+        url.Should().NotContain("host=");
+    }
+
+    /// <summary>
+    /// VMess doesn't special-case xhttp — it falls through to the generic
+    /// host/path branch, so once StreamSettingsExtractor parses xhttpSettings,
+    /// VMess gets correct path/host for free.
+    /// </summary>
+    [Fact]
+    public void Vmess_Xhttp_UsesGenericHostAndPath()
+    {
+        var builder = new VmessConnectionStringBuilder();
+        var inbound = InboundWith("64", 443, "vmess");
+        var xui = new XuiInboundDto(
+            Id: "64",
+            Port: 443,
+            Protocol: "vmess",
+            Settings: """{"clients":[{"id":"vm-xhttp","alterId":0}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/vmx","host":"vmx.example.com"},"tlsSettings":{}}"""
+        );
+
+        var url = builder.Build(MakeConfig("vm-xhttp", "VmessXhttp"), inbound, xui, BackendWith("vmx.example.com"));
+
+        var json = Encoding.UTF8.GetString(Convert.FromBase64String(url["vmess://".Length..]));
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("net").GetString().Should().Be("xhttp");
+        doc.RootElement.GetProperty("path").GetString().Should().Be("/vmx");
+        doc.RootElement.GetProperty("host").GetString().Should().Be("vmx.example.com");
+    }
+
+    // ─── ForcedFingerprint / ForcedPacketEncoding overrides ─────────────
+
+    /// <summary>
+    /// ForcedFingerprint overrides whatever tlsSettings.fingerprint says — most
+    /// 3x-ui inbounds leave it blank, and client apps then fall back to
+    /// fingerprinting the panel's own TLS stack unless the link sets one.
+    /// </summary>
+    [Fact]
+    public void Vless_ForcedFingerprint_OverridesStreamSettingsFingerprint()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("70", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "70",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"fp-uuid"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"tcp","security":"tls","tlsSettings":{"serverName":"f.example.com","fingerprint":"chrome"}}"""
+        );
+
+        var url = builder.Build(
+            new XuiConnectionStringRequest(
+                ExternalClientId: "fp-uuid",
+                Name: "ForcedFp",
+                InboundPort: 443,
+                PublicHost: "f.example.com",
+                BaseUrl: "https://xui.example.com:2053",
+                Inbound: xui,
+                ForcedFingerprint: "firefox"
+            )
+        );
+
+        url.Should().Contain("fp=firefox");
+        url.Should().NotContain("fp=chrome");
+    }
+
+    /// <summary>ForcedFingerprint is ignored for plaintext (security=none) links — no TLS, no fp.</summary>
+    [Fact]
+    public void Vless_ForcedFingerprint_IgnoredWhenSecurityIsNone()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("71", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "71",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"nofp-uuid"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"tcp","security":"none"}"""
+        );
+
+        var url = builder.Build(
+            new XuiConnectionStringRequest(
+                "nofp-uuid",
+                "NoFp",
+                443,
+                "n.example.com",
+                "https://xui.example.com:2053",
+                xui,
+                ForcedFingerprint: "firefox"
+            )
+        );
+
+        url.Should().NotContain("fp=");
+    }
+
+    /// <summary>ForcedFingerprint on VMess overrides the JSON "fp" field the same way.</summary>
+    [Fact]
+    public void Vmess_ForcedFingerprint_OverridesJsonFpField()
+    {
+        var builder = new VmessConnectionStringBuilder();
+        var inbound = InboundWith("72", 443, "vmess");
+        var xui = new XuiInboundDto(
+            Id: "72",
+            Port: 443,
+            Protocol: "vmess",
+            Settings: """{"clients":[{"id":"vm-fp","alterId":0}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"tcp","security":"tls","tlsSettings":{"fingerprint":"chrome"}}"""
+        );
+
+        var url = builder.Build(
+            new XuiConnectionStringRequest(
+                "vm-fp",
+                "VmForcedFp",
+                443,
+                "vm.example.com",
+                "https://xui.example.com:2053",
+                xui,
+                ForcedFingerprint: "firefox"
+            )
+        );
+
+        var json = Encoding.UTF8.GetString(Convert.FromBase64String(url["vmess://".Length..]));
+        using var doc = JsonDocument.Parse(json);
+        doc.RootElement.GetProperty("fp").GetString().Should().Be("firefox");
+    }
+
+    /// <summary>ForcedPacketEncoding is opt-in — omitted by default (existing links keep their exact shape).</summary>
+    [Fact]
+    public void Vless_PacketEncoding_OmittedByDefault()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("73", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "73",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"pe-uuid"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/p"},"tlsSettings":{}}"""
+        );
+
+        var url = builder.Build(MakeConfig("pe-uuid"), inbound, xui, BackendWith("p.example.com"));
+
+        url.Should().NotContain("packetEncoding=");
+    }
+
+    /// <summary>ForcedPacketEncoding, when set, is emitted verbatim — this is how xhttp+vless gets packetEncoding=xudp.</summary>
+    [Fact]
+    public void Vless_Xhttp_ForcedPacketEncoding_IsEmitted()
+    {
+        var builder = new VlessConnectionStringBuilder();
+        var inbound = InboundWith("74", 443, "vless");
+        var xui = new XuiInboundDto(
+            Id: "74",
+            Port: 443,
+            Protocol: "vless",
+            Settings: """{"clients":[{"id":"pe-uuid-2"}]}""",
+            Remark: "",
+            Up: 0,
+            Down: 0,
+            Total: 0,
+            Enable: true,
+            StreamSettings: """{"network":"xhttp","security":"tls","xhttpSettings":{"path":"/videocdn","host":""},"tlsSettings":{}}"""
+        );
+
+        var url = builder.Build(
+            new XuiConnectionStringRequest(
+                "pe-uuid-2",
+                "XudpTest",
+                443,
+                "p.example.com",
+                "https://xui.example.com:2053",
+                xui,
+                ForcedFingerprint: "firefox",
+                ForcedPacketEncoding: "xudp"
+            )
+        );
+
+        url.Should().Contain("type=xhttp");
+        url.Should().Contain("path=%2Fvideocdn");
+        url.Should().Contain("mode=auto");
+        url.Should().Contain("fp=firefox");
+        url.Should().Contain("packetEncoding=xudp");
+        url.Should().NotContain("host=");
+    }
 }
