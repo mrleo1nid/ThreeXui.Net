@@ -546,6 +546,103 @@ public class XuiClientHealthCheckTests
         listHits.Should().Be(1, "405 на status-эндпоинте должен запускать fallback на inbounds/list");
     }
 
+    // ─── 15 ───────────────────────────────────────────────────────────────
+    // Regression for the "node flaps offline, a manual re-probe fixes it"
+    // report: the server-side session silently expires (some forks/reverse
+    // proxies answer every panel API call with a plain 404 once the session
+    // is gone, instead of the 401/403/redirect SendAsync already retries on
+    // its own — see IndicatesExpiredSession). The cached _loggedIn=true fast
+    // path must not let that 404 be mistaken for "this fork has no server API"
+    // (the genuine x-ui v2.4.11 case the 404-fallback exists for) — it should
+    // force one real re-login and retry before giving up.
+    [Fact]
+    public async Task HealthCheck_SilentSessionExpiry404_ForcesReloginAndRecovers()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var sessionValid = false;
+        var loginHits = 0;
+
+        var handler = new StubHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.EndsWith(XuiClient.LoginPath, StringComparison.Ordinal))
+            {
+                loginHits++;
+                sessionValid = true;
+                var ok = JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"msg\":\"\"}");
+                ok.Headers.TryAddWithoutValidation("Set-Cookie", "3x-ui=session; Path=/");
+                return ok;
+            }
+            if (path.EndsWith("/panel/api/server/status", StringComparison.Ordinal)
+                || path.EndsWith("/panel/api/inbounds/list", StringComparison.Ordinal))
+            {
+                return sessionValid
+                    ? JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"msg\":\"\",\"obj\":[]}")
+                    : JsonResponse(HttpStatusCode.NotFound, "{\"success\":false,\"msg\":\"not found\"}");
+            }
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent($"unexpected path: {path}"),
+            };
+        });
+
+        var client = BuildClient(handler);
+
+        var first = await client.CheckHealthAsync(ct);
+        first.Ok.Should().BeTrue();
+        loginHits.Should().Be(1);
+
+        // Server-side session silently dies — no 401/403/redirect, just 404s.
+        sessionValid = false;
+
+        var second = await client.CheckHealthAsync(ct);
+
+        second.Ok.Should().BeTrue(
+            "a forced re-login should restore the session and the retried probe should succeed"
+        );
+        loginHits.Should().Be(
+            2,
+            "the cached fast-path must not mask a session that silently died server-side"
+        );
+    }
+
+    // ─── 16 ───────────────────────────────────────────────────────────────
+    // A fresh login immediately followed by 404 on both probe paths means the
+    // endpoint genuinely doesn't exist (e.g. old x-ui) — must NOT trigger a
+    // second re-login attempt (that would just loop pointlessly).
+    [Fact]
+    public async Task HealthCheck_FreshLoginThen404Both_DoesNotForceExtraRelogin()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var loginHits = 0;
+
+        var handler = new StubHandler(req =>
+        {
+            var path = req.RequestUri!.AbsolutePath;
+            if (path.EndsWith(XuiClient.LoginPath, StringComparison.Ordinal))
+            {
+                loginHits++;
+                var ok = JsonResponse(HttpStatusCode.OK, "{\"success\":true,\"msg\":\"\"}");
+                ok.Headers.TryAddWithoutValidation("Set-Cookie", "3x-ui=session; Path=/");
+                return ok;
+            }
+            if (path.EndsWith("/panel/api/server/status", StringComparison.Ordinal)
+                || path.EndsWith("/panel/api/inbounds/list", StringComparison.Ordinal))
+            {
+                return JsonResponse(HttpStatusCode.NotFound, "{\"success\":false,\"msg\":\"not found\"}");
+            }
+            return new HttpResponseMessage(HttpStatusCode.InternalServerError)
+            {
+                Content = new StringContent($"unexpected path: {path}"),
+            };
+        });
+
+        var result = await BuildClient(handler).CheckHealthAsync(ct);
+
+        result.Ok.Should().BeFalse();
+        loginHits.Should().Be(1, "a 404 right after a fresh login is a genuinely-missing endpoint, not a stale session");
+    }
+
     private static HttpResponseMessage JsonResponse(HttpStatusCode status, string body) =>
         new(status)
         {

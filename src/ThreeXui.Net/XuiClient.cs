@@ -251,6 +251,10 @@ public sealed class XuiClient : IXuiClient, IDisposable
         var sw = Stopwatch.StartNew();
         try
         {
+            // Snapshot BEFORE TryLoginAsync: tells us below whether this call rode
+            // a cached session (fast path) or just performed a real login.
+            var usedCachedSession = _loggedIn;
+
             var loginOutcome = await TryLoginAsync(cancellationToken).ConfigureAwait(false);
             if (!loginOutcome.Success)
             {
@@ -262,46 +266,46 @@ public sealed class XuiClient : IXuiClient, IDisposable
                 );
             }
 
-            var statusOutcome = await TryHealthProbeAsync(HealthPath, cancellationToken)
-                .ConfigureAwait(false);
-            if (statusOutcome.Success)
+            var outcome = await ProbeHealthPathsAsync(cancellationToken).ConfigureAwait(false);
+
+            if (!outcome.Success && outcome.StatusCode == 404 && usedCachedSession)
             {
-                sw.Stop();
-                return new XuiHealthCheckResult(Ok: true, ErrorMessage: null, Latency: sw.Elapsed);
+                // Both the primary probe and its 404-triggered fallback came back
+                // 404 while riding a session cached from an earlier login. Some
+                // forks/reverse-proxies answer a session that silently expired
+                // server-side with a plain 404 on every panel API call instead of
+                // the 401/403/redirect that SendAsync already knows to retry (see
+                // IndicatesExpiredSession) — from here that's indistinguishable
+                // from "this endpoint doesn't exist on this panel" (the genuine
+                // x-ui v2.4.11 case the fallback above exists for). Force one real
+                // re-login and retry before concluding the endpoint is absent;
+                // skip this if we just performed a fresh login ourselves (usedCachedSession
+                // false) since a 404 right after a successful login is never a stale-session artifact.
+                try
+                {
+                    var staleGeneration = Volatile.Read(ref _sessionGeneration);
+                    await InvalidateAndReLoginAsync(staleGeneration, cancellationToken)
+                        .ConfigureAwait(false);
+                    outcome = await ProbeHealthPathsAsync(cancellationToken).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    // Re-login itself failed (e.g. credentials rotated concurrently) —
+                    // surface the original 404 outcome rather than a possibly
+                    // confusing re-login error.
+                }
             }
 
-            // 404 (endpoint absent — e.g. x-ui v2.4.11 has no server API) and 405
-            // (registered under a different verb on some forks) both mean "this
-            // probe path isn't here", so fall back to inbounds/list. Any other
-            // failure (401/403/5xx) is a real fault and must surface, not be
-            // masked by the fallback.
-            if (statusOutcome.StatusCode != 404 && statusOutcome.StatusCode != 405)
-            {
-                sw.Stop();
-                return new XuiHealthCheckResult(
-                    Ok: false,
-                    ErrorMessage: statusOutcome.ErrorMessage,
-                    Latency: sw.Elapsed
-                );
-            }
-
-            _logger.LogInformation(
-                "3xui {HealthPath} returned {Status} — trying fallback probe {FallbackPath}.",
-                HealthPath,
-                statusOutcome.StatusCode,
-                InboundsListPath
-            );
-
-            var listOutcome = await TryHealthProbeAsync(InboundsListPath, cancellationToken)
-                .ConfigureAwait(false);
             sw.Stop();
-            return listOutcome.Success
-                ? new XuiHealthCheckResult(Ok: true, ErrorMessage: null, Latency: sw.Elapsed)
-                : new XuiHealthCheckResult(
-                    Ok: false,
-                    ErrorMessage: listOutcome.ErrorMessage,
-                    Latency: sw.Elapsed
-                );
+            return new XuiHealthCheckResult(
+                Ok: outcome.Success,
+                ErrorMessage: outcome.Success ? null : outcome.ErrorMessage,
+                Latency: sw.Elapsed
+            );
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -318,6 +322,29 @@ public sealed class XuiClient : IXuiClient, IDisposable
             );
             return new XuiHealthCheckResult(Ok: false, ErrorMessage: message, Latency: sw.Elapsed);
         }
+    }
+
+    /// <summary>Probes <see cref="HealthPath"/>; on 404/405 (endpoint not registered on
+    /// this fork) falls back once to <see cref="InboundsListPath"/>. Any other failure
+    /// (401/403/5xx) is a real fault and is returned as-is, not masked by the fallback.</summary>
+    private async Task<HealthProbeOutcome> ProbeHealthPathsAsync(CancellationToken cancellationToken)
+    {
+        var statusOutcome = await TryHealthProbeAsync(HealthPath, cancellationToken)
+            .ConfigureAwait(false);
+        if (statusOutcome.Success)
+            return statusOutcome;
+
+        if (statusOutcome.StatusCode != 404 && statusOutcome.StatusCode != 405)
+            return statusOutcome;
+
+        _logger.LogInformation(
+            "3xui {HealthPath} returned {Status} — trying fallback probe {FallbackPath}.",
+            HealthPath,
+            statusOutcome.StatusCode,
+            InboundsListPath
+        );
+
+        return await TryHealthProbeAsync(InboundsListPath, cancellationToken).ConfigureAwait(false);
     }
 
     private sealed record HealthProbeOutcome(bool Success, int? StatusCode, string? ErrorMessage);

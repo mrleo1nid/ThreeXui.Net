@@ -64,6 +64,17 @@ All notable changes to ThreeXui.Net are documented here. Format loosely follows
   `301`/`302`/`307`/`308` redirect back to `/login` instead. `SendAsync` now
   treats all of those as an expired session and re-logs in + retries once, same
   as `401`.
+- `CheckHealthAsync` could report a healthy panel as down after its cached
+  session silently expired server-side, if the fork/reverse-proxy in front of
+  it answers every panel API call with a plain `404` once the session is gone
+  (instead of the `401`/`403`/redirect `SendAsync` already retries on its own).
+  The 404 was indistinguishable from "this fork has no server API" (the x-ui
+  v2.4.11 case the `inbounds/list` fallback exists for), so the health check
+  failed instead of re-authenticating — until the next unrelated call happened
+  to force a fresh login. `CheckHealthAsync` now forces one real re-login and
+  retries before concluding the endpoint is genuinely absent, but only when the
+  404 followed a *cached* session (a 404 right after a fresh login is still
+  treated as a missing endpoint, not retried again).
 
 ### Changed
 
